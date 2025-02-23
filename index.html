@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Hidden Random Chess</title>
+  <!-- Include chessboard.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css" 
+        integrity="sha512-tDQrW9Ir8lG8GxPBy5DKb8P68W8cFS6V1Zf4YhSZdHo/szIfzsQ8O0GxRp3BxoSmAdYpp7NUQlTR4+p7JXj1NQ==" 
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+    /* Basic board styling (using custom rendering for hidden-piece support) */
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 60px);
+      grid-template-rows: repeat(8, 60px);
+      width: 480px;
+      height: 480px;
+      border: 2px solid #333;
+    }
+    .square {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      cursor: pointer;
+    }
+    .light {
+      background-color: #eeeed2;
+    }
+    .dark {
+      background-color: #769656;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hidden Random Chess</h1>
+  <div id="status">Connecting...</div>
+  <div id="board"></div>
+  
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Include chess.js and chessboard.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0/chess.min.js" 
+          integrity="sha512-AOgE0Nvw87faBrG1gOkOpqUEyHkK4YW5+Ls82NtOuoyx8q3YGrBwf+v3TOL5tB9VYbzpM9NXnhy0O4zqR8F6PA==" 
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js" 
+          integrity="sha512-8MPzUmsktF0fx2eDVctMmM6FKiXl6I+Uu4NZcARny0rYIh/rWQj6h3UbHozU31S9Ed5Wqb0zFvmvEVPpZrCjWw==" 
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script>
+    const socket = io();
+    let game, myColor;
+    const boardDiv = document.getElementById('board');
+    let selectedSquare = null;
+    
+    // Board coordinates.
+    const files = 'abcdefgh';
+    const ranks = '87654321';
+    
+    // Render the board. This function uses custom HTML so that we can display
+    // your own pieces normally and mask opponent pieces (shown as a generic token "●")
+    // until they are revealed via capture.
+    function renderBoard() {
+      boardDiv.innerHTML = '';
+      for (let r of ranks) {
+        for (let f of files) {
+          let square = f + r;
+          let squareDiv = document.createElement('div');
+          squareDiv.className = 'square ' + (((files.indexOf(f) + parseInt(r)) % 2 === 0) ? 'light' : 'dark');
+          squareDiv.id = square;
+          squareDiv.addEventListener('click', () => onSquareClick(square));
+          
+          // Determine which piece (if any) to show.
+          let pieceSymbol = '';
+          // Show your own pieces with their true symbol.
+          if (game && game.pieces[myColor] && game.pieces[myColor][square]) {
+            pieceSymbol = symbolForPiece(game.pieces[myColor][square], myColor);
+          } else {
+            // For opponent pieces, if not revealed, show a generic token.
+            let opponentColor = myColor === 'white' ? 'black' : 'white';
+            if (game && game.pieces[opponentColor] && game.pieces[opponentColor][square]) {
+              if (game.revealed[opponentColor] && game.revealed[opponentColor][square]) {
+                pieceSymbol = symbolForPiece(game.revealed[opponentColor][square], opponentColor);
+              } else {
+                pieceSymbol = '●';
+              }
+            }
+          }
+          squareDiv.textContent = pieceSymbol;
+          boardDiv.appendChild(squareDiv);
+        }
+      }
+    }
+    
+    // Return the Unicode chess symbol for a given piece.
+    function symbolForPiece(piece, color) {
+      const symbols = {
+        'K': { white: '♔', black: '♚' },
+        'Q': { white: '♕', black: '♛' },
+        'R': { white: '♖', black: '♜' },
+        'B': { white: '♗', black: '♝' },
+        'N': { white: '♘', black: '♞' },
+        'P': { white: '♙', black: '♟︎' }
+      };
+      return symbols[piece] ? symbols[piece][color] : '';
+    }
+    
+    // Handle board square clicks.
+    function onSquareClick(square) {
+      if (!game) return;
+      if (selectedSquare) {
+        // Emit move: from selectedSquare to clicked square.
+        socket.emit('makeMove', { gameId: game.id, from: selectedSquare, to: square, color: myColor });
+        selectedSquare = null;
+      } else {
+        // Select a square only if it contains one of your pieces.
+        if (game.pieces[myColor] && game.pieces[myColor][square]) {
+          selectedSquare = square;
+        }
+      }
+    }
+    
+    socket.on('connect', () => {
+      document.getElementById('status').textContent = 'Connected. Waiting for game...';
+      socket.emit('joinGame');
+    });
+    
+    socket.on('waiting', () => {
+      document.getElementById('status').textContent = 'Waiting for an opponent...';
+    });
+    
+    socket.on('gameStart', data => {
+      game = data.game;
+      myColor = data.color;
+      document.getElementById('status').textContent = 'Game started! You are ' + myColor + '.';
+      renderBoard();
+    });
+    
+    socket.on('updateGame', updatedGame => {
+      game = updatedGame;
+      renderBoard();
+    });
+  </script>
+</body>
+</html>
